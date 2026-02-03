@@ -1,0 +1,96 @@
+//@version=5
+indicator('Swing Structure Tracker', shorttitle='Swing Structure', overlay=true)
+
+// Inputs
+lb_left = input.int(10, 'Left Bars', minval=1, group='Pivot Detection')
+lb_right = input.int(10, 'Right Bars', minval=1, group='Pivot Detection')
+wait_close = input.bool(true, 'Wait for Candle Close', group='Pivot Detection', 
+  tooltip='Reduces repainting by waiting for candle confirmation')
+
+show_dots = input.bool(true, 'Show Pivot Points', group='Display')
+show_labels = input.bool(true, 'Show Structure Labels (HH/LL/HL/LH)', group='Display')
+show_lines = input.bool(true, 'Show Swing Lines', group='Display')
+
+max_bars = input.int(0, 'Max Line Length (bars)', minval=0, group='Line Settings',
+  tooltip='0 = unlimited. Lines will stop extending after this many bars')
+
+// Detect pivots
+delay = wait_close ? 1 : 0
+hi_pivot = ta.pivothigh(high, lb_left, lb_right)
+lo_pivot = ta.pivotlow(low, lb_left, lb_right)
+
+// Apply delay
+hi_confirmed = hi_pivot[delay]
+lo_confirmed = lo_pivot[delay]
+
+// Structure classification helper
+get_structure(pivot_condition, src) =>
+    curr = ta.valuewhen(pivot_condition, src[lb_right + delay], 0)
+    prev = ta.valuewhen(pivot_condition, src[lb_right + delay], 1)
+    [curr > prev, curr < prev]
+
+[hh, lh] = get_structure(hi_confirmed, high)
+[hl, ll] = get_structure(lo_confirmed, low)
+
+hh_marker = hh ? hi_confirmed : na
+lh_marker = lh ? hi_confirmed : na
+hl_marker = hl ? lo_confirmed : na
+ll_marker = ll ? lo_confirmed : na
+
+// Plot structure labels
+plot_offset = -lb_right - delay
+
+if show_labels
+    plotshape(hh_marker, 'HH', shape.triangleup, location.abovebar, 
+      color.green, offset=plot_offset, text='HH', textcolor=color.green)
+    plotshape(hl_marker, 'HL', shape.triangleup, location.belowbar, 
+      color.green, offset=plot_offset, text='HL', textcolor=color.green)
+    plotshape(lh_marker, 'LH', shape.triangledown, location.abovebar, 
+      color.maroon, offset=plot_offset, text='LH', textcolor=color.maroon)
+    plotshape(ll_marker, 'LL', shape.triangledown, location.belowbar, 
+      color.maroon, offset=plot_offset, text='LL', textcolor=color.maroon)
+
+// Simple pivot dots when labels are off
+if show_dots and not show_labels
+    plot(hi_confirmed, 'High Pivot', plot.style_circles, color.green, offset=plot_offset, linewidth=2)
+    plot(lo_confirmed, 'Low Pivot', plot.style_circles, color.maroon, offset=plot_offset, linewidth=2)
+
+// Track swing levels
+var float last_hi = na
+var float last_lo = na
+var int bars_since_hi = 0
+var int bars_since_lo = 0
+
+last_hi := na(hi_confirmed) ? last_hi[1] : high[lb_right + delay]
+last_lo := na(lo_confirmed) ? last_lo[1] : low[lb_right + delay]
+bars_since_hi := na(hi_confirmed) ? nz(bars_since_hi[1]) + 1 : 0
+bars_since_lo := na(lo_confirmed) ? nz(bars_since_lo[1]) + 1 : 0
+
+// Draw swing lines
+var line hi_line = na
+var line lo_line = na
+
+if show_lines
+    // High swing line
+    if not na(last_hi) and nz(last_hi[1]) != last_hi
+        hi_line := line.new(bar_index - (lb_right + delay), last_hi, bar_index, last_hi, 
+          width=1, color=color.new(color.red, 70))
+    
+    if not na(hi_line) and not na(last_hi) and line.get_x2(hi_line) != bar_index
+        line.set_x2(hi_line, bar_index)
+    
+    if max_bars > 0 and bars_since_hi >= max_bars
+        line.delete(hi_line)
+        hi_line := na
+    
+    // Low swing line
+    if not na(last_lo) and nz(last_lo[1]) != last_lo
+        lo_line := line.new(bar_index - (lb_right + delay), last_lo, bar_index, last_lo, 
+          width=1, color=color.new(color.green, 70))
+    
+    if not na(lo_line) and not na(last_lo) and line.get_x2(lo_line) != bar_index
+        line.set_x2(lo_line, bar_index)
+    
+    if max_bars > 0 and bars_since_lo >= max_bars
+        line.delete(lo_line)
+        lo_line := na
